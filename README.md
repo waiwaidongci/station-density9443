@@ -13,7 +13,8 @@
 3. 分析配置：冻结来源、参数和全部样本，进入Redis队列。
 4. 完整结果：真实算法摘要、专属诊断、全部CSV导出和可恢复失败态。
 5. 复访计划：分析师草案→负责人批准→阅读者下载批准快照。
-6. 审计：登录、来源修改、任务worker完成、业务说明批准等事件。
+6. 误采清除：按来源与样本编号发起彻底清除，受理即封锁，核验副本全部消失后出具凭据。
+7. 审计：登录、来源修改、任务worker完成、业务说明批准、清除受理与完成等事件。
 
 ## 快速启动
 
@@ -56,6 +57,22 @@ JWT有效期8小时；PBKDF2盐化哈希保存密码；角色每请求从数据�
 Survey / StationReading / DensityRun / VisitPlan 是核心实体；另有User和Audit。数据库实际表：`surveys` → `station_readings` → `density_runs` → `visit_plans`。样本以固定字段JSON保存，后端按以下字段严格验证，不接受未知字段替代必填值：温度 ℃（`temperature`）、相对湿度 %（`humidity`）、颗粒浓度 μg/m³（`particles`）。
 
 实体贯穿 `backend/src/models`、`schemas`、`services`、`controllers`、`routes`，以及 `frontend/src/api/research.js`、`stores/research.js` 和 `pages`。`Source.key` 与 `(Record.source_id, reference)` 为自然键；来源改名不会修改已冻结任务输入。业务说明在创建时保存结果快照，批准后从该快照导出。
+
+## 误采清除
+
+目的：某来源的样本被误采后，按来源与编号发起彻底清除，使其原值不再出现在任何可读或可导出的副本中，同时不影响同来源其余样本和无关研究。页面“误采清除”可发起并查看进度。
+
+接口：`POST /sources/{id}/purge`（body `{"references": ["HL-202611-01-0007", ...]}`，也接受 `source` 自然键与 `references` 字符串）、`GET /purge-requests`、`GET /purge-requests/{id}`、`POST /purge-requests/{id}/retry`、`GET /sources/{id}/purges`。发起与重试需 admin/analyst；阅读者只读。
+
+流程与保证：
+
+1. **受理即封锁**：受理事务先写清除凭据与编号墓碑，并把包含该编号的 `density_runs` 与 `visit_plans` 标记为已清除，提交后才返回。此后这些研究与说明的详情、CSV 导出、批准操作均返回 423；来源样本列表与计数立即隐藏该编号；新建研究冻结输入时跳过墓碑编号。未受影响的来源、研究与说明照常可用。
+2. **清除副本**：删除源样本行；从所有冻结输入 `snapshot.records` 中移除该编号；删除受影响研究的结果 `result` 与状态；清空相关说明（含已批准）的 `frozen_result`、标题与正文并标记 `purged`；删除 `artifacts` 卷中该来源的 `run-*.csv`（按受影响/同来源研究编号与内容扫描定位，避免误删其他来源）。
+3. **保留凭据**：`purge_requests` 只记录来源、编号、范围计数、各副本核验结果与时间，不保存任何原值；审计追加 `purge.accepted` / `purge.completed`。
+4. **可恢复且幂等**：清除在响应后与启动时执行；状态 `accepted → processing → completed`，失败为 `failed` 并可重试。状态迁移用条件更新抢占，并发发起或重试只有一方执行；重复提交同一编号集合返回既有凭据（`created:false`），不会产生第二份凭据或重复删除。数据库提交与文件删除之间中断时，重启扫描 `accepted/processing` 凭据继续执行；重试只补齐未消失的副本。
+5. **核验后完成**：只有源样本、冻结输入、结果、说明快照与共享文件逐项核验均不存在，凭据才从处理中转为 `completed`；否则保持 `failed` 并记录核验明细。
+6. **不可复现**：墓碑使旧编号无法重新录入（409）；删除后新建研究只会冻结其余样本；晚归的 worker 结果在写入前检查封锁标记，已封锁则丢弃结果并删除临时 CSV，不会重新带出已清除数据。旧批准说明同样服从清除，导出返回 423。
+7. **升级兼容**：后端启动时幂等补齐 `density_runs/visit_plans.purged/purge_id` 列并把 `visit_plans.frozen_result` 改为可空；演示种子跳过墓碑编号。
 
 ## 算法与口径
 
@@ -106,3 +123,12 @@ backend/migrations/001_initial.sql
 共享枚举：`backend/src/constants/enums.py` 与 `frontend/src/constants/enums.js` 都定义 admin/analyst/viewer、queued/running/completed/failed、draft/approved。后端service检查对应字符串；README为全量值说明。共享前端组件table/status/chart/business跨总览、结果、配置与复核复用；actions hook和format utils负责交互/格式。后端errors与rate_limit是两个中间件。
 
 测试及截图在批根 `test-artifacts/gb-0042/`，不混入源码。独立算法oracle、HTTP完整流程和真实Playwright浏览器流程见该目录 `TESTING.md`。License：MIT。
+
+## 误采清除验收要点
+
+`test-artifacts/gb-0042/purge_e2e.py` 覆盖：受理后封锁（详情/导出/批准 423）、冻结输入与结果去值、同来源其余样本与无关研究可用、重复提交与重试幂等、处理中断后重启续作、晚归 worker 不复活数据、旧批准说明服从清除、凭据不含原值。脚本使用临时 SQLite 与临时 artifacts 目录，不改动演示库：
+
+```bash
+cd /workspace
+python3 test-artifacts/gb-0042/purge_e2e.py
+```

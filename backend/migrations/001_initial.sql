@@ -1,3 +1,7 @@
 -- SQLAlchemy metadata initializes tables idempotently.
 -- Domain tables: surveys, station_readings, density_runs, visit_plans.
 -- Unique natural keys: source.key; (record.source_id, record.reference).
+-- Purge bookkeeping (added idempotently by src/config/database.ensure_schema):
+--   density_runs.purged / purge_id, visit_plans.purged / purge_id,
+--   purge_requests, purged_records;
+--   visit_plans.frozen_result becomes nullable once a note is cleared.

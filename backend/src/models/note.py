@@ -1,4 +1,4 @@
-from sqlalchemy import Column,Integer,String,Text,JSON,ForeignKey
+from sqlalchemy import Column,Integer,String,Text,JSON,ForeignKey,Boolean
 from ..config.database import Base
 from ..config.settings import CONFIG
 class Note(Base):
@@ -8,6 +8,8 @@ class Note(Base):
     title=Column(String(160),nullable=False)
     body=Column(Text,nullable=False)
     state=Column(String(20),default='draft')
-    frozen_result=Column(JSON,nullable=False)
+    frozen_result=Column(JSON,nullable=True)
     author=Column(String(120),nullable=False)
     approved_by=Column(String(120),default='')
+    purged=Column(Boolean,default=False,nullable=False)
+    purge_id=Column(Integer,default=None)

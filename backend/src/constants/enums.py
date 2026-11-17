@@ -4,4 +4,6 @@ class Role(str,Enum):
 class RunState(str,Enum):
     queued='queued'; running='running'; completed='completed'; failed='failed'
 class ReviewState(str,Enum):
-    draft='draft'; approved='approved'
+    draft='draft'; approved='approved'; purged='purged'
+class PurgeState(str,Enum):
+    accepted='accepted'; processing='processing'; completed='completed'; failed='failed'

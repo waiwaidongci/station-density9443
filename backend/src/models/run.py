@@ -1,4 +1,4 @@
-from sqlalchemy import Column,Integer,String,JSON,Text,ForeignKey
+from sqlalchemy import Column,Integer,String,JSON,Text,ForeignKey,Boolean
 from ..config.database import Base
 from ..config.settings import CONFIG
 class Run(Base):
@@ -12,3 +12,5 @@ class Run(Base):
     result=Column(JSON,nullable=True)
     error=Column(Text,default='')
     created_at=Column(String(40),nullable=False)
+    purged=Column(Boolean,default=False,nullable=False)
+    purge_id=Column(Integer,default=None)

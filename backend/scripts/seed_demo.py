@@ -6,7 +6,8 @@ from src.models.user import User
 from src.models.source import Source
 from src.models.record import Record
 from src.models.run import Run
-from src.models import note,audit
+from src.models import note,audit,purge
+from src.models.purge import PurgedRecord
 from src.utils.security import hash_password
 from src.utils.serialization import now
 from src.services.runs import queue
@@ -46,6 +47,8 @@ def seed():
             for index in range(CONFIG['seed_count']):
                 reference=key+f'-{index+1:04}'
                 vals=seed_values(CONFIG['algorithm'],index,batch,rng)
+                purged=db.scalar(select(PurgedRecord.id).where(PurgedRecord.source_id==source.id,PurgedRecord.reference==reference))
+                if purged:continue
                 if not db.scalar(select(Record.id).where(Record.source_id==source.id,Record.reference==reference)):
                     db.add(Record(source_id=source.id,reference=reference,values=validate_record(vals)))
             db.flush()

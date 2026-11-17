@@ -10,9 +10,11 @@ def csv_response(result,filename):
 def run_csv(db,id):
     r=get_run(db,id)
     if r.state!='completed':raise HTTPException(409,'结果尚未完成')
+    if not r.result:raise HTTPException(410,'结果已不存在')
     return csv_response(r.result,'run-'+str(id)+'.csv')
 def note_csv(db,id):
     n=db.get(Note,id)
     if not n:raise HTTPException(404,'未找到说明')
+    if n.purged or not n.frozen_result:raise HTTPException(423,'该说明已被彻底清除，不能读取或导出')
     if n.state!='approved':raise HTTPException(403,'仅批准后的业务说明可导出')
     return csv_response(n.frozen_result,'approved-'+str(id)+'.csv')
